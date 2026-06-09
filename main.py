@@ -9,8 +9,15 @@ NOTIFUSE_API_URL = "http://notifuse.seius.com.ec/api/v1/transactional" # Tu URL 
 
 @task(retries=3, retry_delay_seconds=10)
 def enviar_a_notifuse(payload: dict):
-    # Esto ejecuta el envío real hacia Notifuse
     response = requests.post(NOTIFUSE_API_URL, json=payload)
+    
+    # 📝 LOGS TEMPORALES DE DIAGNÓSTICO:
+    print(f"--- DIAGNÓSTICO NOTIFUSE ---")
+    print(f"Payload enviado: {payload}")
+    print(f"Código de estado: {response.status_code}")
+    print(f"Respuesta del servidor: {response.text}")
+    print(f"----------------------------")
+    
     if response.status_code not in [200, 201]:
         raise Exception(f"Error en Notifuse: {response.status_code}")
 
