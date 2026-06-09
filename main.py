@@ -9,14 +9,22 @@ NOTIFUSE_API_URL = "http://notifuse.seius.com.ec/api/v1/transactional" # Tu URL 
 
 @task(retries=3, retry_delay_seconds=10)
 def enviar_a_notifuse(payload: dict):
-    response = requests.post(NOTIFUSE_API_URL, json=payload)
+    # 🔑 Agrega aquí tu Token real de Notifuse
+    NOTIFUSE_API_KEY = "TU_API_KEY_DE_NOTIFUSE" 
     
-    # 📝 LOGS TEMPORALES DE DIAGNÓSTICO:
-    print(f"--- DIAGNÓSTICO NOTIFUSE ---")
-    print(f"Payload enviado: {payload}")
-    print(f"Código de estado: {response.status_code}")
-    print(f"Respuesta del servidor: {response.text}")
-    print(f"----------------------------")
+    headers = {
+        "Authorization": f"Bearer {NOTIFUSE_API_KEY}",
+        "Content-Type": application/json"
+    }
+
+    # Enviamos el payload con las credenciales correspondientes
+    response = requests.post(NOTIFUSE_API_URL, json=payload, headers=headers)
+    
+    # Logs para ver la respuesta del porqué si llega a fallar
+    print(f"--- RESPUESTA DE NOTIFUSE ---")
+    print(f"Status Code: {response.status_code}")
+    print(f"Response Body: {response.text}")
+    print(f"------------------------------")
     
     if response.status_code not in [200, 201]:
         raise Exception(f"Error en Notifuse: {response.status_code}")
