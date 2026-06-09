@@ -1,64 +1,60 @@
-from fastapi import FastAPI, Request, BackgroundTasks
-from prefect import flow, task
-from prefect.client.orchestration import get_client
-import uvicorn
+import os
 import requests
+import urllib3
 
-app = FastAPI()
-NOTIFUSE_API_URL = "http://notifuse.seius.com.ec/api/v1/transactional" # Tu URL interna en Dokploy
+# Desactivar los warnings molestos de TLS/SSL por usar la IP interna con -k
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-@task(retries=3, retry_delay_seconds=10)
-def enviar_a_notifuse(payload: dict):
-    # 🔑 Agrega aquí tu Token real de Notifuse
-    NOTIFUSE_API_KEY = "TU_API_KEY_DE_NOTIFUSE" 
+def upsert_notifuse_contact(email, first_name="", last_name=""):
+    """
+    Registra o actualiza un contacto en Notifuse saltándose Cloudflare
+    usando la red local del VPS.
+    """
+    # 1. Configuración de la URL interna y el Host virtual para Traefik
+    url = "https://127.0.0.1:443/api/contacts.upsert"
     
     headers = {
-        "Authorization": f"Bearer {NOTIFUSE_API_KEY}",
-        "Content-Type": application/json"
+        "Host": "notifuse.seius.com.ec",
+        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiYTY1ODUwYTMtMzIxMC00NDM0LWIxMDgtNjU5MTUxMWRjZmNmIiwidHlwZSI6ImFwaV9rZXkiLCJlbWFpbCI6ImNybUBub3RpZnVzZS5zZWl1cy5jb20uZWMiLCJleHAiOjIwOTYzOTg4MjUsIm5iZiI6MTc4MTAzODgyNSwiaWF0IjoxNzgxMDM4ODI1fQ.KXCMxplkGTCZedrles6ZTM71yg3AdwW5y8l7NYKl8_4",
+        "Content-Type": "application/json"
     }
 
-    # Enviamos el payload con las credenciales correspondientes
-    response = requests.post(NOTIFUSE_API_URL, json=payload, headers=headers)
-    
-    # Logs para ver la respuesta del porqué si llega a fallar
-    print(f"--- RESPUESTA DE NOTIFUSE ---")
-    print(f"Status Code: {response.status_code}")
-    print(f"Response Body: {response.text}")
-    print(f"------------------------------")
-    
-    if response.status_code not in [200, 201]:
-        raise Exception(f"Error en Notifuse: {response.status_code}")
-
-@flow(name="Sincronizar Cliente Twenty - Notifuse")
-def crm_sync_flow(twenty_data: dict):
-    # 1. Extraer los datos del JSON de Twenty
-    emails = twenty_data.get("emails", [])
-    email_principal = emails[0].get("email") if emails else None
-    
-    if not email_principal:
-        return {"status": "ignored", "reason": "No email found"}
-
-    # 2. Mapear al formato plano de Notifuse
-    notifuse_payload = {
-        "email": email_principal,
-        "first_name": twenty_data.get("name", {}).get("firstName", ""),
-        "last_name": twenty_data.get("name", {}).get("lastName", ""),
-        "external_id": twenty_data.get("id")
+    # 2. Tu estructura de JSON perfecta (validada con 'seius' en minúsculas)
+    payload = {
+        "workspace_id": "seius",
+        "contact": {
+            "email": email,
+            "first_name": first_name,
+            "last_name": last_name
+        }
     }
 
-    # 3. Enviar
-    enviar_a_notifuse(notifuse_payload)
+    try:
+        # 3. Realizar la petición HTTP POST (verify=False equivale al -k de curl)
+        print(f"Enviando contacto a Notifuse: {email}...")
+        response = requests.post(url, json=payload, headers=headers, verify=False, timeout=10)
+        
+        # 4. Manejo y lectura de la respuesta
+        if response.status_code in [200, 201]:
+            print("¡Éxito! Contacto guardado correctamente en Notifuse.")
+            print("Respuesta del servidor:", response.json())
+            return True
+        else:
+            print(f"Error al guardar contacto. Código de estado: {response.status_code}")
+            print("Detalle del backend:", response.text)
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"Error crítico de conexión con el contenedor de Notifuse: {e}")
+        return False
 
-# Este es el endpoint que va a escuchar a Twenty CRM
-@app.post("/webhook")
-async def receive_twenty_webhook(request: Request, background_tasks: BackgroundTasks):
-    payload = await request.json()
-    twenty_data = payload.get("data", {})
-    
-    # Lanzamos el flujo de Prefect en segundo plano para no bloquear a Twenty
-    background_tasks.add_task(crm_sync_flow, twenty_data)
-    
-    return {"status": "accepted"}
-
+# ==========================================
+# Ejemplo de uso (Prueba de ejecución rápida)
+# ==========================================
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Datos de prueba para verificar que el puente funcione desde Python
+    test_email = "alexander.upsert.python@seius.com.ec"
+    test_name = "Alexander"
+    test_lastname = "Paillacho"
+    
+    upsert_notifuse_contact(test_email, test_name, test_lastname)
