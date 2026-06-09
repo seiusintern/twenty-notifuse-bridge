@@ -14,7 +14,7 @@ def enviar_a_notifuse(payload: dict):
     if response.status_code not in [200, 201]:
         raise Exception(f"Error en Notifuse: {response.status_code}")
 
-@flow(name="Sincronizar Cliente Twenty -> Notifuse")
+@flow(name="Sincronizar Cliente Twenty - Notifuse")
 def crm_sync_flow(twenty_data: dict):
     # 1. Extraer los datos del JSON de Twenty
     emails = twenty_data.get("emails", [])
