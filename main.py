@@ -1,60 +1,92 @@
 import os
 import requests
 import urllib3
+from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel, Field
+from typing import List, Optional
 
-# Desactivar los warnings molestos de TLS/SSL por usar la IP interna con -k
+# Desactivar los warnings de TLS/SSL por usar la IP interna
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def upsert_notifuse_contact(email, first_name="", last_name=""):
-    """
-    Registra o actualiza un contacto en Notifuse saltándose Cloudflare
-    usando la red local del VPS.
-    """
-    # 1. Configuración de la URL interna y el Host virtual para Traefik
-    url = "https://127.0.0.1:443/api/contacts.upsert"
-    
-    headers = {
-        "Host": "notifuse.seius.com.ec",
-        "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiYTY1ODUwYTMtMzIxMC00NDM0LWIxMDgtNjU5MTUxMWRjZmNmIiwidHlwZSI6ImFwaV9rZXkiLCJlbWFpbCI6ImNybUBub3RpZnVzZS5zZWl1cy5jb20uZWMiLCJleHAiOjIwOTYzOTg4MjUsIm5iZiI6MTc4MTAzODgyNSwiaWF0IjoxNzgxMDM4ODI1fQ.KXCMxplkGTCZedrles6ZTM71yg3AdwW5y8l7NYKl8_4",
-        "Content-Type": "application/json"
-    }
+app = FastAPI(title="Puente Twenty CRM a Notifuse")
 
-    # 2. Tu estructura de JSON perfecta (validada con 'seius' en minúsculas)
-    payload = {
-        "workspace_id": "seius",
+# Configuración fija del backend Notifuse (Red interna del VPS)
+NOTIFUSE_URL = "https://127.0.0.1:443/api/contacts.upsert"
+NOTIFUSE_HEADERS = {
+    "Host": "notifuse.seius.com.ec",
+    "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiYTY1ODUwYTMtMzIxMC00NDM0LWIxMDgtNjU5MTUxMWRjZmNmIiwidHlwZSI6ImFwaV9rZXkiLCJlbWFpbCI6ImNybUBub3RpZnVzZS5zZWl1cy5jb20uZWMiLCJleHAiOjIwOTYzOTg4MjUsIm5iZiI6MTt4MTAzODgyNSwiaWF0IjoxNzgxMDM4ODI1fQ.KXCMxplkGTCZedrles6ZTM71yg3AdwW5y8l7NYKl8_4",
+    "Content-Type": "application/json"
+}
+WORKSPACE_ID = "seius"
+
+# --- Modelos de datos para mapear el JSON dinámico de Twenty CRM ---
+class TwentyEmail(BaseModel):
+    email: str
+    primary: Optional[bool] = True
+
+class TwentyPersonData(BaseModel):
+    firstName: Optional[str] = ""
+    lastName: Optional[str] = ""
+    emails: List[TwentyEmail]
+
+class TwentyWebhookPayload(BaseModel):
+    action: str  # Ejemplo: "person.created" o "person.updated"
+    data: TwentyPersonData
+
+# --- Endpoint que escuchará a Twenty CRM ---
+@app.post("/webhook/twenty-to-notifuse")
+async def handle_twenty_webhook(payload: TwentyWebhookPayload):
+    """
+    Recibe el evento dinámico de Twenty CRM, extrae los datos del contacto
+    y los envía estructurados a Notifuse de forma automática.
+    """
+    person = payload.data
+    
+    # 1. Extraer el email principal del arreglo de correos de Twenty
+    if not person.emails:
+        raise HTTPException(status_code=400, detail="El contacto de Twenty no tiene correos asignados.")
+    
+    # Buscamos el primario, si no hay, agarramos el primero de la lista
+    primary_email_obj = next((e for e in person.emails if e.primary), person.emails[0])
+    email_dinamico = primary_email_obj.email
+
+    # 2. Mapear al formato estricto que requiere Notifuse
+    notifuse_payload = {
+        "workspace_id": WORKSPACE_ID,
         "contact": {
-            "email": email,
-            "first_name": first_name,
-            "last_name": last_name
+            "email": email_dinamico,
+            "first_name": person.firstName,
+            "last_name": person.lastName
         }
     }
 
+    # 3. Despachar los datos dinámicos al contenedor local de Notifuse
     try:
-        # 3. Realizar la petición HTTP POST (verify=False equivale al -k de curl)
-        print(f"Enviando contacto a Notifuse: {email}...")
-        response = requests.post(url, json=payload, headers=headers, verify=False, timeout=10)
+        print(f"Procesando Webhook [{payload.action}] para: {email_dinamico}")
+        response = requests.post(
+            NOTIFUSE_URL, 
+            json=notifuse_payload, 
+            headers=NOTIFUSE_HEADERS, 
+            verify=False, 
+            timeout=10
+        )
         
-        # 4. Manejo y lectura de la respuesta
         if response.status_code in [200, 201]:
-            print("¡Éxito! Contacto guardado correctamente en Notifuse.")
-            print("Respuesta del servidor:", response.json())
-            return True
+            return {
+                "status": "success", 
+                "message": f"Contacto {email_dinamico} sincronizado dinámicamente en Notifuse.",
+                "backend_response": response.json()
+            }
         else:
-            print(f"Error al guardar contacto. Código de estado: {response.status_code}")
-            print("Detalle del backend:", response.text)
-            return False
+            raise HTTPException(
+                status_code=response.status_code, 
+                detail=f"Notifuse rechazó los datos: {response.text}"
+            )
             
     except requests.exceptions.RequestException as e:
-        print(f"Error crítico de conexión con el contenedor de Notifuse: {e}")
-        return False
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Error en la red interna hacia Notifuse: {str(e)}"
+        )
 
-# ==========================================
-# Ejemplo de uso (Prueba de ejecución rápida)
-# ==========================================
-if __name__ == "__main__":
-    # Datos de prueba para verificar que el puente funcione desde Python
-    test_email = "alexander.upsert.python@seius.com.ec"
-    test_name = "Alexander"
-    test_lastname = "Paillacho"
-    
-    upsert_notifuse_contact(test_email, test_name, test_lastname)
+# Para correrlo localmente si deseas probar: uvicorn main:app --host 0.0.0.0 --port 8000
