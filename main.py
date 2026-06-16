@@ -14,7 +14,6 @@ app = FastAPI(title="Puente Twenty CRM a Notifuse")
 NOTIFUSE_URL = "https://172.17.0.1:443/api/contacts.upsert"
 NOTIFUSE_HEADERS = {
     "Host": "notifuse.seius.com.ec",
-    "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiYTY1ODUwYTMtMzIxMC00NDM0LWIxMDgtNjU5MTUxMWRjZmNmIiwidHlwZSI6ImFwaV9rZXkiLCJlbWFpbCI6ImNybUBub3RpZnVzZS5zZWl1cy5jb20uZWMiLCJleHAiOjIwOTYzOTg4MjUsIm5iZiI6MTc4MTAzODgyNSwiaWF0IjoxNzgxMDM4ODI1fQ.KXCMxplkGTCZedrles6ZTM71yg3AdwW5y8l7NYKl8_4",
     "Content-Type": "application/json"
 }
 WORKSPACE_ID = "seius"
